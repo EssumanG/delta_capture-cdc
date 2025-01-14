@@ -77,7 +77,7 @@ services:
       retries: 5
 
   debezium:
-    image: debezium/connect:2.7.3.Final
+    image: quay.io/debezium/connect:latest
     restart: always
     container_name: debezium
     hostname: debezium
@@ -127,11 +127,13 @@ services:
     restart: always
     container_name: postgres
     ports:
-      - "5432:5432"
+      - "5434:5432"
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: financial_db
+    extra_hosts:
+        - 'host.docker.internal:127.0.0.1'
     command: [ 'postgres', '-c', 'wal_level=logical' ]
     healthcheck:
       test: [ 'CMD', 'psql', '-U', 'postgres', '-c', 'SELECT 1' ]
