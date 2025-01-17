@@ -116,7 +116,7 @@ services:
       debezium:
         condition: service_healthy
     ports:
-      - '8080:8080'
+      - '8888:8080'
     environment:
       KAFKA_CONNECT_URIS: http://debezium:8083
     networks:
@@ -142,9 +142,43 @@ services:
       retries: 5
     networks:
       - cdc-network
+
+  spark-master: 
+    image: bitnami/spark:latest
+    container_name:  spark-master
+    hostname: spark-master
+    environment:
+      - SPARK_MODE=master
+    ports:
+      - "7077:7077"
+      - "8082:8080"
+    volumes:
+      - .:/opt/spark-app
+    command: ["/opt/bitnami/scripts/spark/run.sh"]
+    networks:
+      - cdc-network
+
+  spark-worker:
+    image: bitnami/spark:latest
+    container_name: spark-worker
+    hostname:  spark-worker
+    environment:
+      - SPARK_MODE=worker
+      - SPARK_MASTER_URL=spark://spark-master:7077
+    ports:
+      - "8081:8081" # Spark worker UI
+    volumes:
+      - .:/opt/spark-app
+    depends_on:
+      - spark-master
+    networks:
+      - cdc-network
+
       
 
 networks:
   cdc-network:
     name: cdc-network
     driver: bridge
+
+
