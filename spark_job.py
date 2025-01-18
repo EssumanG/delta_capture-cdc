@@ -2,6 +2,8 @@ from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
 from pyspark.sql.types import StructType, StructField, StringType, LongType
 
+report_dir = '/opt/spark-app/reports'
+checkpoint_dir ='/opt/spark-app/checkpoint'
 
 schema = StructType([
     StructField("payload", StructType([
@@ -43,7 +45,9 @@ schema = StructType([
 ])
 
 
-spark = SparkSession.builder.appName("Analyse_transaction").getOrCreate()
+spark = SparkSession.builder.appName("Analyse_transaction")\
+    .config("spark.jars.packages", "org.apache.spark:spark-sql-kafka-0-10_2.12:3.3.2")\
+        .getOrCreate()
 
 df = spark.readStream.format("kafka")\
     .option("kafka.bootstrap.servers", "kafka:29092")\
@@ -116,8 +120,14 @@ df_extracted = df_extracted_diff.select(
     F.col("after_change_info").alias("change_info"),
 )
 
+df_extracted_with_timestamp = df_extracted.withColumn(
+    "timestamp", 
+    (F.col("timestamp") / 1000).cast("timestamp")  # Convert milliseconds to seconds and cast to timestamp
+)
+
+df_with_watermark = df_extracted_with_timestamp.withWatermark("timestamp", "10 minutes")
 # total number of transactions per user
-df_total_number_user_transactions = df_extracted.groupBy(
+df_total_number_user_transactions = df_with_watermark.groupBy(
     F.col("user_id"),
     F.col("currency"),
 ).agg(
@@ -128,7 +138,7 @@ df_total_number_user_transactions = df_extracted.groupBy(
 ).orderBy(F.col("transaction_count"), F.col("total_amount"))
 
 # merchant with highest transaction per hour
-df_trasc_with_hour = df_extracted.withColumn("hour", F.hour((F.col("timestamp") / 1000).cast("timestamp")))
+df_trasc_with_hour = df_with_watermark.withColumn("hour", F.hour(F.col("timestamp")))
 
 df_other = df_trasc_with_hour.groupBy(
     F.col("merchant_name"),
@@ -140,12 +150,31 @@ df_other = df_trasc_with_hour.groupBy(
         F.col("currency"),
         ignorenulls=True
     ).alias("most_common_currency")
-    ).ordeBy(
+    ).orderBy(
         F.col("total_amount")
     )
 
 
-# query = df_total_number_user_transactions.writeStream.outputMode("complete").format("console").start()
-query = df_other.writeStream.outputMode("complete").format("console").start(Truncate=True)
+
+
+query = df_other.writeStream.outputMode("complete").format("console").start()
+# query_transaction = df_total_number_user_transactions.writeStream\
+#     .outputMode("update")\
+#         .format("csv")\
+#             .option("path", report_dir)\
+#                 .option("checkpointLocation", checkpoint_dir)\
+#                     .option("header", True)\
+#                         .start()
+
+# query_merchant = df_other.writeStream\
+#     .outputMode("update")\
+#         .format("csv")\
+#             .option("path", report_dir)\
+#                 .option("checkpointLocation", checkpoint_dir)\
+#                     .option("header", True)\
+#                         .start()
+
+# query_transaction.awaitTermination()
+# query_merchant.awaitTermination()
 
 query.awaitTermination()
